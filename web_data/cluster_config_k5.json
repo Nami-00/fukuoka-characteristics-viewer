@@ -4,8 +4,8 @@
   "clusters": [
     {
       "id": 0,
-      "name": "クラスター 0",
-      "color": "#e74c3c",
+      "name": "戸建住宅地域",
+      "color": "#27ae60",
       "count": 2035,
       "avg_buildings": 100.66781326781327,
       "avg_restaurants": 0.9552825552825552,
@@ -32,8 +32,8 @@
     },
     {
       "id": 1,
-      "name": "クラスター 1",
-      "color": "#f39c12",
+      "name": "集合住宅地域",
+      "color": "#7dcea0",
       "count": 892,
       "avg_buildings": 83.58632286995515,
       "avg_restaurants": 9.308295964125561,
@@ -60,8 +60,8 @@
     },
     {
       "id": 2,
-      "name": "クラスター 2",
-      "color": "#2ecc71",
+      "name": "商業混在地域",
+      "color": "#f4d03f",
       "count": 411,
       "avg_buildings": 12.472019464720194,
       "avg_restaurants": 10.204379562043796,
@@ -88,8 +88,8 @@
     },
     {
       "id": 3,
-      "name": "クラスター 3",
-      "color": "#3498db",
+      "name": "複合商業地域",
+      "color": "#ffd54f",
       "count": 2,
       "avg_buildings": 1.5,
       "avg_restaurants": 44.5,
@@ -116,8 +116,8 @@
     },
     {
       "id": 4,
-      "name": "クラスター 4",
-      "color": "#9b59b6",
+      "name": "文教施設地域",
+      "color": "#3498db",
       "count": 1705,
       "avg_buildings": 1.3618768328445747,
       "avg_restaurants": 4.863929618768329,
