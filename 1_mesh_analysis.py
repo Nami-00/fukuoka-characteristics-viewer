@@ -203,6 +203,51 @@ print("\n💾 結果保存中...")
 # GeoJSON保存
 result_filtered.to_file(OUTPUT_MESH_RESULT_GEOJSON, driver='GeoJSON', encoding='utf-8')
 print(f"   ✅ {OUTPUT_MESH_RESULT_GEOJSON}")
+# ==== Web用: メッシュ用途集計 GeoJSON 出力 ====
+WEB_DATA_DIR = BASE_DIR / 'web_data'
+WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+web_result = result_filtered[['mesh_code', 'geometry'] + building_cols + ['飲食店数', '建物総数']]
+
+web_output_path = WEB_DATA_DIR / 'mesh_usage.geojson'
+web_result.to_file(web_output_path, driver='GeoJSON', encoding='utf-8')
+
+print(f"✅ {web_output_path} を作成しました（web表示用）")
+
+# ==== Web用: 個別建物用途 GeoJSON 出力 ====
+WEB_DATA_DIR = BASE_DIR / 'web_data'
+WEB_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+
+# building_gdf はすでに EPSG:4326 & 対象用途のみ抽出済みの想定
+# geometry をPointに統一（念のため）
+if building_gdf.crs != 'EPSG:4326':
+    building_gdf = building_gdf.to_crs('EPSG:4326')
+
+# webで必要な列だけに絞る（重い列を落とす）
+keep_cols = []
+for c in ['usage', 'usage_ja']:
+    if c in building_gdf.columns:
+        keep_cols.append(c)
+
+# もし建物ID的な列があるなら残す（無ければ後段で付与）
+for c in ['gml_id', 'id', 'fid', '建物ID']:
+    if c in building_gdf.columns:
+        keep_cols.append(c)
+        break
+
+web_buildings = building_gdf[keep_cols + ['geometry']].copy()
+
+# ID列が無い場合は連番を付ける
+if not any(c in web_buildings.columns for c in ['gml_id', 'id', 'fid', '建物ID']):
+    web_buildings['id'] = range(1, len(web_buildings) + 1)
+
+# GeoJSON出力
+buildings_out = WEB_DATA_DIR / 'buildings_usage.geojson'
+web_buildings.to_file(buildings_out, driver='GeoJSON', encoding='utf-8')
+
+print(f"✅ {buildings_out} を作成しました（個別建物用途）")
 
 # CSV保存（geometry除外）
 result_csv = result_filtered.drop(columns=['geometry'])
