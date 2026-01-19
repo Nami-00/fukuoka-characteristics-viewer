@@ -2,10 +2,10 @@
 // 優先：地域特性（mesh_usage.geojson + buildings_usage.geojson + zoom連動）
 //
 // 地域特性の判定（建物総数>=10のみ）
-// - 住居が多い: 住居系(共同住宅+住宅+店舗等併用住宅+店舗等併用共同住宅) >= 50%
-// - 商業が多い: (商業施設+商業系複合施設) >= 40%
-// - オフィスが多い: 業務施設 >= 40%
-// - 多用途: 住居系・商業系・業務施設がそれぞれ >=20%
+// - 住居が多い: 住居系(共同住宅+住宅+店舗等併用住宅+店舗等併用共同住宅) >= 60%
+// - 商業が多い: (商業施設+商業系複合施設) >= 30%
+// - オフィスが多い: 業務施設 >= 30%
+// - 多用途: 住居系・商業系・業務施設がそれぞれ >=15%
 //
 // ズーム連動（当初仕様）
 // - zoom >= 14: buildings_usage の建物点
@@ -13,7 +13,7 @@
 
 // Mapbox token（方針により空）
 // ※必ず自分の token を設定してください
-mapboxgl.accessToken = '';
+mapboxgl.accessToken = 'pk.eyJ1IjoibmFtaTAwIiwiYSI6ImNta2FlNGFkeTFsbzkzZnNjY3kyY3h3a2QifQ._Xgc5PBf9qCnhgtcpe_mjw';
 
 let map;
 
@@ -63,6 +63,15 @@ const BUILDINGS_LABELS_LAYER_ID = 'buildings-labels';
 const SHOW_BUILDINGS_ZOOM = 14;
 const SHOW_BUILDING_LABELS_ZOOM = 15;
 
+// 表示したい用途キー（mesh_usage.geojson 側の properties 名）
+const USAGE_KEYS = {
+  total: '建物総数',
+  house: '建物_住宅',
+  apartment: '建物_共同住宅',
+  commercial: '建物_商業施設',
+  commercialMix: '建物_商業系複合施設',
+  office: '建物_業務施設'
+};
 let meshUsageData = null;
 let buildingsUsageData = null;
 
@@ -88,10 +97,10 @@ function calcMeshCharacteristic(props) {
   const rCom = commercialSum / total;
   const rOff = officeSum / total;
 
-  if (rRes >= 0.2 && rCom >= 0.2 && rOff >= 0.2) return 'diverse';
-  if (rRes >= 0.5) return 'residential';
-  if (rCom >= 0.4) return 'commercial';
-  if (rOff >= 0.4) return 'office';
+  if (rRes >= 0.15 && rCom >= 0.15 && rOff >= 0.15) return 'diverse';
+  if (rRes >= 0.6) return 'residential';
+  if (rCom >= 0.3) return 'commercial';
+  if (rOff >= 0.3) return 'office';
   return null;
 }
 
@@ -115,16 +124,22 @@ async function loadCharacteristicsDataIfNeeded() {
 
 function ensureCharacteristicsLayers() {
   if (!map || !map.isStyleLoaded()) return;
+  if (!meshUsageData) return; // まだ読めてないなら何もしない
 
-  if (!map.getSource(CHARACTERISTICS_MESH_SOURCE_ID) && meshUsageData) {
-    map.addSource(CHARACTERISTICS_MESH_SOURCE_ID, { type: 'geojson', data: meshUsageData });
-  }
-  if (!map.getSource(BUILDINGS_SOURCE_ID) && buildingsUsageData) {
-    map.addSource(BUILDINGS_SOURCE_ID, { type: 'geojson', data: buildingsUsageData });
+  // 1) Source（mesh_usage）
+  if (!map.getSource(CHARACTERISTICS_MESH_SOURCE_ID)) {
+    map.addSource(CHARACTERISTICS_MESH_SOURCE_ID, {
+      type: 'geojson',
+      data: meshUsageData
+    });
+  } else {
+    // 既にある場合は data 更新（再適用の安定化）
+    const src = map.getSource(CHARACTERISTICS_MESH_SOURCE_ID);
+    if (src && src.setData) src.setData(meshUsageData);
   }
 
-  // mesh_usage：薄色塗り（選択でfilter）
-  if (!map.getLayer(CHARACTERISTICS_MESH_BASE_LAYER_ID) && map.getSource(CHARACTERISTICS_MESH_SOURCE_ID)) {
+  // 2) Base fill（必ず作る）
+  if (!map.getLayer(CHARACTERISTICS_MESH_BASE_LAYER_ID)) {
     map.addLayer({
       id: CHARACTERISTICS_MESH_BASE_LAYER_ID,
       type: 'fill',
@@ -138,74 +153,117 @@ function ensureCharacteristicsLayers() {
           'diverse',     CHARACTER_FILTERS.diverse.color,
           'rgba(0,0,0,0)'
         ],
-        'fill-opacity': 0.18
+        'fill-opacity': 0.5
       },
-      layout: { 'visibility': 'none' }
+      layout: { visibility: 'none' }
     });
   }
 
-  if (!map.getLayer(CHARACTERISTICS_MESH_OUTLINE_LAYER_ID) && map.getSource(CHARACTERISTICS_MESH_SOURCE_ID)) {
+  // 3) Outline（必ず作る）
+  if (!map.getLayer(CHARACTERISTICS_MESH_OUTLINE_LAYER_ID)) {
     map.addLayer({
       id: CHARACTERISTICS_MESH_OUTLINE_LAYER_ID,
       type: 'line',
       source: CHARACTERISTICS_MESH_SOURCE_ID,
-      paint: { 'line-color': '#666', 'line-width': 0.6, 'line-opacity': 0.35 },
-      layout: { 'visibility': 'none' }
+      paint: {
+        'line-color': '#666',
+        'line-width': 0.6,
+        'line-opacity': 0.35
+      },
+      layout: { visibility: 'none' }
     });
   }
 
-  // buildings_usage：建物点（zoom>=14）
-  if (!map.getLayer(BUILDINGS_POINTS_LAYER_ID) && map.getSource(BUILDINGS_SOURCE_ID)) {
-    map.addLayer({
-      id: BUILDINGS_POINTS_LAYER_ID,
-      type: 'circle',
-      source: BUILDINGS_SOURCE_ID,
-      minzoom: SHOW_BUILDINGS_ZOOM,
-      paint: {
-        'circle-radius': 2.5,
-        'circle-color': [
-          'match', ['get', 'usage_ja'],
-          '住宅', '#66c2a5',
-          '共同住宅', '#66c2a5',
-          '店舗等併用住宅', '#66c2a5',
-          '店舗等併用共同住宅', '#66c2a5',
-          '商業施設', '#fc8d62',
-          '商業系複合施設', '#fc8d62',
-          '業務施設', '#8da0cb',
-          '官公庁施設', '#bdbdbd',
-          '宿泊施設', '#a6d854',
-          '文教厚生施設', '#ffd92f',
-          '#888888'
-        ],
-        'circle-opacity': 0.75
-      },
-      layout: { 'visibility': 'none' }
-    });
-  }
+  // ---- 建物点（メモリ不足ならここは今は触らない方が安全）
+  // buildingsUsageData が取れていて、将来復活させるならここで addSource/addLayer する
+}
 
-  // buildings_usage：用途ラベル（zoom>=15）
-  if (!map.getLayer(BUILDINGS_LABELS_LAYER_ID) && map.getSource(BUILDINGS_SOURCE_ID)) {
-    map.addLayer({
-      id: BUILDINGS_LABELS_LAYER_ID,
-      type: 'symbol',
-      source: BUILDINGS_SOURCE_ID,
-      minzoom: SHOW_BUILDING_LABELS_ZOOM,
-      layout: {
-        'text-field': ['get', 'usage_ja'],
-        'text-font': ['Open Sans Regular'],
-        'text-size': 10,
-        'text-anchor': 'top',
-        'text-offset': [0, 0.6],
-        'text-allow-overlap': false
-      },
-      paint: {
-        'text-color': '#111',
-        'text-halo-color': '#fff',
-        'text-halo-width': 1
-      },
-      layout: { 'visibility': 'none' }
-    });
-  }
+let characteristicsPopupBound = false;
+
+function bindCharacteristicsPopupOnce() {
+  if (characteristicsPopupBound) return;
+  if (!map.getLayer(CHARACTERISTICS_MESH_BASE_LAYER_ID)) return;
+
+  map.on('click', CHARACTERISTICS_MESH_BASE_LAYER_ID, (e) => {
+    const f = e.features && e.features[0];
+    if (!f) return;
+
+    const p = f.properties || {};
+    const meshCode = p.mesh_code ?? p.meshcode ?? p.MESHCODE ?? '(unknown)';
+
+    const toNum = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const total = toNum(p['建物総数']);
+    const house = toNum(p['建物_住宅']);
+    const apt = toNum(p['建物_共同住宅']);
+    const comm = toNum(p['建物_商業施設']);
+    const commMix = toNum(p['建物_商業系複合施設']);
+    const office = toNum(p['建物_業務施設']);
+
+    const residential = house + apt;
+    const commercial = comm + commMix;
+    const other = Math.max(0, total - residential - commercial - office);
+
+    const html = `
+      <div style="
+        font-size:12px; line-height:1.35;
+        width:400 box-sizing:border-box;
+        overflow:hidden;
+      ">
+        <div style="font-weight:700;margin-bottom:6px;">メッシュ ${meshCode}</div>
+
+        <table style="
+          width:100%;
+          border-collapse:collapse;
+          table-layout:fixed;
+        ">
+          <colgroup>
+            <col style="width:72%;">
+            <col style="width:28%;">
+          </colgroup>
+
+          <tr>
+            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">建物総数</td>
+            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${total}</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">住宅（住宅+共同住宅）</td>
+            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${residential}</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">商業（商業施設+商業系複合）</td>
+            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${commercial}</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">業務（オフィス）</td>
+            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${office}</td>
+          </tr>
+          <tr>
+            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">その他</td>
+            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${other}</td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+
+    new mapboxgl.Popup({ closeButton: true, closeOnClick: true })
+      .setLngLat(e.lngLat)
+      .setHTML(html)
+      .addTo(map);
+  });
+
+  map.on('mouseenter', CHARACTERISTICS_MESH_BASE_LAYER_ID, () => {
+    map.getCanvas().style.cursor = 'pointer';
+  });
+  map.on('mouseleave', CHARACTERISTICS_MESH_BASE_LAYER_ID, () => {
+    map.getCanvas().style.cursor = '';
+  });
+
+  characteristicsPopupBound = true;
 }
 
 function setCharacteristicsVisibility(isVisible) {
@@ -217,6 +275,11 @@ function setCharacteristicsVisibility(isVisible) {
 }
 
 function applyCharacteristicsSelection() {
+  console.log('[apply]', {
+  key: document.getElementById('characteristic-filter')?.value,
+  hasBase: !!map.getLayer(CHARACTERISTICS_MESH_BASE_LAYER_ID),
+  hasOutline: !!map.getLayer(CHARACTERISTICS_MESH_OUTLINE_LAYER_ID)
+});
   const sel = document.getElementById('characteristic-filter');
   const key = sel ? sel.value : null;
 
@@ -236,8 +299,24 @@ function applyCharacteristicsSelection() {
 
 // ===== 起動 =====
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('[DOM ready]');
+
+  // ここでDOMが取れるかを確定させる
+  console.log('[dom snapshot]',
+    'tab-passengers=', !!document.getElementById('tab-passengers'),
+    'tab-mesh=', !!document.getElementById('tab-mesh'),
+    'tab-characteristics=', !!document.getElementById('tab-characteristics'),
+    'passenger-controls=', !!document.getElementById('passenger-controls'),
+    'mesh-controls=', !!document.getElementById('mesh-controls'),
+    'characteristics-controls=', !!document.getElementById('characteristics-controls'),
+    'characteristic-filter=', !!document.getElementById('characteristic-filter'),
+    'apply=', !!document.getElementById('apply-characteristic-filter')
+  );
+
   initMap();
   setupControls();
+
+  console.log('[after setupControls]');
 });
 
 function initMap() {
@@ -267,6 +346,17 @@ function initMap() {
     // 既存のモード（必要なら後で復旧）
     // loadClusterData(currentClusterCount);
     // loadStationData();
+
+  
+    // mesh_usage.geojson の properties キー名（あなたの仕様メモに合わせ）
+    const USAGE_KEYS = {
+      total: '建物総数',
+      house: '建物_住宅',
+      apartment: '建物_共同住宅',
+      commercial: '建物_商業施設',
+      commercialMix: '建物_商業系複合施設',
+      office: '建物_業務施設'
+    };
 
     // 初期凡例
     updateLegend();
@@ -298,17 +388,20 @@ function switchMode(mode) {
   const meshControls = document.getElementById('mesh-controls');
   const passengerControls = document.getElementById('passenger-controls');
   const charControls = document.getElementById('characteristics-controls');
+
   if (meshControls) meshControls.style.display = (mode === 'mesh') ? 'block' : 'none';
   if (passengerControls) passengerControls.style.display = (mode === 'passengers') ? 'block' : 'none';
   if (charControls) charControls.style.display = (mode === 'characteristics') ? 'block' : 'none';
 
   // タブ見た目
-  ['tab-passengers','tab-mesh','tab-characteristics'].forEach(id => document.getElementById(id)?.classList.remove('active'));
+  ['tab-passengers', 'tab-mesh', 'tab-characteristics']
+    .forEach(id => document.getElementById(id)?.classList.remove('active'));
+
   if (mode === 'passengers') document.getElementById('tab-passengers')?.classList.add('active');
   if (mode === 'mesh') document.getElementById('tab-mesh')?.classList.add('active');
   if (mode === 'characteristics') document.getElementById('tab-characteristics')?.classList.add('active');
 
-  // 地域特性の表示/非表示
+  // 地域特性以外：地域特性レイヤは隠す
   if (mode !== 'characteristics') {
     setCharacteristicsVisibility(false);
     updateLegend();
@@ -320,11 +413,17 @@ function switchMode(mode) {
     .then(() => {
       ensureCharacteristicsLayers();
       setCharacteristicsVisibility(true);
-      applyCharacteristicsSelection();
-      updateLegend();
+      bindCharacteristicsPopupOnce();
+
+      // 1フレーム遅らせてフィルタ適用（描画準備待ち）
+      requestAnimationFrame(() => {
+        applyCharacteristicsSelection();
+        updateLegend();
+      });
     })
     .catch((e) => console.error('地域特性データ読込エラー:', e));
 }
+
 
 function updateLegend() {
   const container = document.getElementById('legend-content');
@@ -332,12 +431,8 @@ function updateLegend() {
   container.innerHTML = '';
 
   if (currentMode === 'characteristics') {
+    setCharacteristicsVisibility(true);
     container.innerHTML = '<h4>地域特性（mesh_usage）</h4>';
-
-    const note = document.createElement('div');
-    note.style.margin = '6px 0 10px';
-    note.innerHTML = '<p style="margin:0;">ズーム14以上で建物点、ズーム15以上で用途ラベル（usage_ja）を表示（buildings_usage）。</p>';
-    container.appendChild(note);
 
     Object.keys(CHARACTER_FILTERS).forEach((k) => {
       const row = document.createElement('div');
@@ -360,17 +455,19 @@ function updateLegend() {
     desc.style.marginTop = '10px';
     desc.innerHTML =
       '<p style="margin:0;"><strong>判定条件:</strong> 建物総数が10棟以上のメッシュのみ対象。</p>' +
-      '<p style="margin:0;">住居>=50%、商業>=40%、業務>=40%、多用途は3種>=20%。</p>';
+      '<p style="margin:0;">住居>=60%、商業>=30%、業務>=30%、多用途は3種>=15%。</p>';
     container.appendChild(desc);
     return;
   }
 
   // 後回し：他モードの凡例は最小表示
   if (currentMode === 'passengers') {
+    setCharacteristicsVisibility(false);
     container.innerHTML = '<h4>乗降客数</h4><p style="margin:0;">（地域特性を優先実装中）</p>';
     return;
   }
   if (currentMode === 'mesh') {
+    setCharacteristicsVisibility(false);
     container.innerHTML = '<h4>商圏メッシュ</h4><p style="margin:0;">（地域特性を優先実装中）</p>';
     return;
   }
