@@ -66,7 +66,7 @@ function injectPopupCSSOnce() {
   style.id = 'mesh-popup-style';
   style.textContent = `
     .mapboxgl-popup.mesh-popup .mapboxgl-popup-content{
-      max-width: 520px !important;
+      max-width: 52-0px !important;
       width: 520px !important;
       box-sizing: border-box;
       padding: 10px 12px;
@@ -207,47 +207,38 @@ function bindPopupOnce() {
     const other = Math.max(0, total - residential - commercial - office);
 
     const html = `
-      <div style="
-        font-size:12px; line-height:1.4;
-        width:480px; box-sizing:border-box;
-        overflow:visible;
-        padding: 4px;
-      ">
+      <div style="font-size:12px; line-height:1.45;">
         <div style="font-weight:700;margin-bottom:8px; font-size:13px;">メッシュ ${meshCode}</div>
 
-        <table style="
-          width:100%;
-          border-collapse:collapse;
-          table-layout:auto;
-        ">
+        <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
           <colgroup>
-            <col style="width:60%;">
-            <col style="width:40%;">
+            <col style="width:72%;">
+            <col style="width:28%;">
           </colgroup>
 
           <tr>
-            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">建物総数</td>
-            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${total}</td>
+            <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">建物総数</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${total.toLocaleString()}</td>
           </tr>
           <tr>
-            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">住宅（住宅+共同住宅）</td>
-            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${residential}</td>
+            <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">住宅（住宅+共同住宅）</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${residential.toLocaleString()}</td>
           </tr>
           <tr>
-            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">商業（商業施設+商業系複合）</td>
-            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${commercial}</td>
+            <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">商業（商業施設+商業系複合）</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${commercial.toLocaleString()}</td>
           </tr>
           <tr>
-            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">業務（オフィス）</td>
-            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${office}</td>
+            <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">業務（オフィス）</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${office.toLocaleString()}</td>
           </tr>
           <tr>
-            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">その他</td>
-            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${other}</td>
+            <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">その他</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${other.toLocaleString()}</td>
           </tr>
           <tr>
-            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">飲食店数</td>
-            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${restaurants}</td>
+            <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">飲食店数</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${restaurants.toLocaleString()}</td>
           </tr>
         </table>
       </div>
