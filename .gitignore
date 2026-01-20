@@ -38,3 +38,8 @@ desktop.ini
 *.log
 *.tmp
 *.bak
+
+# 不要ファイル
+1_mesh_analysis_geojsonL.py
+web_data/buildings_usage.geojsonl
+web_data/mesh_usage.geojsonl
