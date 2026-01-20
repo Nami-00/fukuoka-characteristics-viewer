@@ -60,6 +60,21 @@ const MODES = {
   }
 };
 
+function injectPopupCSSOnce() {
+  if (document.getElementById('mesh-popup-style')) return;
+  const style = document.createElement('style');
+  style.id = 'mesh-popup-style';
+  style.textContent = `
+    .mapboxgl-popup.mesh-popup .mapboxgl-popup-content{
+      max-width: 520px !important;
+      width: 520px !important;
+      box-sizing: border-box;
+      padding: 10px 12px;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 // ===== Characteristic calculation =====
 function calcMeshCharacteristic(props) {
   const total = Number(props['建物総数'] ?? 0);
@@ -193,55 +208,63 @@ function bindPopupOnce() {
 
     const html = `
       <div style="
-        font-size:12px; line-height:1.35;
-        width:400px; box-sizing:border-box;
-        overflow:hidden;
+        font-size:12px; line-height:1.4;
+        width:480px; box-sizing:border-box;
+        overflow:visible;
+        padding: 4px;
       ">
-        <div style="font-weight:700;margin-bottom:6px;">メッシュ ${meshCode}</div>
+        <div style="font-weight:700;margin-bottom:8px; font-size:13px;">メッシュ ${meshCode}</div>
 
         <table style="
           width:100%;
           border-collapse:collapse;
-          table-layout:fixed;
+          table-layout:auto;
         ">
           <colgroup>
-            <col style="width:72%;">
-            <col style="width:28%;">
+            <col style="width:60%;">
+            <col style="width:40%;">
           </colgroup>
 
           <tr>
-            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">建物総数</td>
-            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${total}</td>
+            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">建物総数</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${total}</td>
           </tr>
           <tr>
-            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">住宅（住宅+共同住宅）</td>
-            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${residential}</td>
+            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">住宅（住宅+共同住宅）</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${residential}</td>
           </tr>
           <tr>
-            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">商業（商業施設+商業系複合）</td>
-            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${commercial}</td>
+            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">商業（商業施設+商業系複合）</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${commercial}</td>
           </tr>
           <tr>
-            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">業務（オフィス）</td>
-            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${office}</td>
+            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">業務（オフィス）</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${office}</td>
           </tr>
           <tr>
-            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">その他</td>
-            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${other}</td>
+            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">その他</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${other}</td>
           </tr>
           <tr>
-            <td style="padding:2px 6px 2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">飲食店数</td>
-            <td style="padding:2px 0; text-align:right; white-space:nowrap;">${restaurants}</td>
+            <td style="padding:4px 8px 4px 0; word-wrap:break-word; white-space:normal;">飲食店数</td>
+            <td style="padding:4px 0; text-align:right; white-space:nowrap;">${restaurants}</td>
           </tr>
         </table>
       </div>
     `;
 
-    new mapboxgl.Popup({ closeButton: true, closeOnClick: true })
-      .setLngLat(e.lngLat)
-      .setHTML(html)
-      .addTo(map);
-  });
+injectPopupCSSOnce();
+
+  new mapboxgl.Popup({
+    closeButton: true,
+    closeOnClick: true,
+    maxWidth: '520px',      // ★これが重要（外枠）
+    className: 'mesh-popup' // ★CSS適用
+  })
+    .setLngLat(e.lngLat)
+    .setHTML(html)
+    .addTo(map);
+    });
 
   map.on('mouseenter', MESH_FILL_LAYER_ID, () => {
     map.getCanvas().style.cursor = 'pointer';
