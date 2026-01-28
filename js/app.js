@@ -17,14 +17,32 @@ let currentCharacteristicMode = 'residential';
 
 // データ
 let meshUsageData = null;
+let buildingsUsageData = null;
 
 // ===== URLs =====
 const MESH_USAGE_URL = 'web_data/mesh_usage.geojson';
+const BUILDINGS_USAGE_URL = 'web_data/buildings_usage.geojson';
+
+// ===== Zoom threshold for layer switching =====
+const ZOOM_THRESHOLD = 14;
 
 // ===== Layer IDs =====
 const MESH_SOURCE_ID = 'mesh-usage';
 const MESH_FILL_LAYER_ID = 'mesh-fill';
 const MESH_OUTLINE_LAYER_ID = 'mesh-outline';
+const BUILDINGS_SOURCE_ID = 'buildings-usage';
+const BUILDINGS_LAYER_ID = 'buildings-circles';
+
+// ===== Building usage colors =====
+const BUILDING_USAGE_COLORS = {
+  '住宅': '#66c2a5',
+  '共同住宅': '#66c2a5',
+  '商業施設': '#fc8d62',
+  '業務施設': '#8da0cb',
+  '店舗': '#fc8d62',
+  '飲食店': '#e78ac3',
+  'その他': '#cccccc'
+};
 
 // ===== Mode configuration =====
 const MODES = {
@@ -128,6 +146,62 @@ async function loadMeshData() {
   }
 }
 
+// ===== Load buildings data =====
+async function loadBuildingsData() {
+  if (buildingsUsageData) return;
+  try {
+    const response = await fetch(BUILDINGS_USAGE_URL);
+    buildingsUsageData = await response.json();
+    console.log(`Buildings data loaded: ${buildingsUsageData.features.length} buildings`);
+  } catch (e) {
+    console.error('Error loading buildings data:', e);
+    throw e;
+  }
+}
+
+// ===== Ensure building layers are created first =====
+function ensureBuildingLayersFirst() {
+  if (!map || !map.isStyleLoaded()) return;
+  if (!buildingsUsageData) return;
+
+  // Add source
+  if (!map.getSource(BUILDINGS_SOURCE_ID)) {
+    map.addSource(BUILDINGS_SOURCE_ID, {
+      type: 'geojson',
+      data: buildingsUsageData
+    });
+  } else {
+    map.getSource(BUILDINGS_SOURCE_ID).setData(buildingsUsageData);
+  }
+
+  // Build color expression for building usage
+  const colorExpr = ['match', ['get', '用途']];
+  for (const [usage, color] of Object.entries(BUILDING_USAGE_COLORS)) {
+    colorExpr.push(usage, color);
+  }
+  colorExpr.push('#cccccc'); // default color
+
+  // Add circle layer (first, so it appears below mesh)
+  if (!map.getLayer(BUILDINGS_LAYER_ID)) {
+    map.addLayer({
+      id: BUILDINGS_LAYER_ID,
+      type: 'circle',
+      source: BUILDINGS_SOURCE_ID,
+      paint: {
+        'circle-radius': 4,
+        'circle-color': colorExpr,
+        'circle-opacity': 0.7,
+        'circle-stroke-width': 0.5,
+        'circle-stroke-color': '#fff'
+      },
+      layout: { visibility: 'visible' }
+    });
+  }
+
+  // Bind popup for buildings
+  bindBuildingPopupOnce();
+}
+
 // ===== Ensure layers are created =====
 function ensureMeshLayers() {
   if (!map || !map.isStyleLoaded()) return;
@@ -143,7 +217,7 @@ function ensureMeshLayers() {
     map.getSource(MESH_SOURCE_ID).setData(meshUsageData);
   }
 
-  // Add fill layer
+  // Add fill layer (after buildings layer so it appears on top when visible)
   if (!map.getLayer(MESH_FILL_LAYER_ID)) {
     map.addLayer({
       id: MESH_FILL_LAYER_ID,
@@ -174,6 +248,8 @@ function ensureMeshLayers() {
   // Bind popup
   bindPopupOnce();
 }
+
+
 
 // ===== Popup binding =====
 let popupBound = false;
@@ -267,6 +343,57 @@ injectPopupCSSOnce();
   popupBound = true;
 }
 
+// ===== Building popup binding =====
+let buildingPopupBound = false;
+
+function bindBuildingPopupOnce() {
+  if (buildingPopupBound) return;
+  if (!map.getLayer(BUILDINGS_LAYER_ID)) return;
+
+  map.on('click', BUILDINGS_LAYER_ID, (e) => {
+    const f = e.features && e.features[0];
+    if (!f) return;
+
+    const p = f.properties || {};
+    const buildingId = p.id ?? p.building_id ?? '(unknown)';
+    const buildingType = p.用途 ?? p.usage ?? 'Unknown';
+
+    const html = `
+      <div style="font-size:12px; line-height:1.45;">
+        <div style="font-weight:700;margin-bottom:8px; font-size:13px;">建物 ${buildingId}</div>
+        <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
+          <colgroup>
+            <col style="width:40%;">
+            <col style="width:60%;">
+          </colgroup>
+          <tr>
+            <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">用途</td>
+            <td style="padding:4px 0; white-space:normal; word-break:break-word;">${buildingType}</td>
+          </tr>
+        </table>
+      </div>
+    `;
+
+    new mapboxgl.Popup({
+      closeButton: true,
+      closeOnClick: true,
+      maxWidth: '300px'
+    })
+      .setLngLat(e.lngLat)
+      .setHTML(html)
+      .addTo(map);
+  });
+
+  map.on('mouseenter', BUILDINGS_LAYER_ID, () => {
+    map.getCanvas().style.cursor = 'pointer';
+  });
+  map.on('mouseleave', BUILDINGS_LAYER_ID, () => {
+    map.getCanvas().style.cursor = '';
+  });
+
+  buildingPopupBound = true;
+}
+
 // ===== Update colors based on mode =====
 function updateMeshColors() {
   if (!map.getLayer(MESH_FILL_LAYER_ID)) return;
@@ -288,18 +415,47 @@ function updateMeshColors() {
   map.setPaintProperty(MESH_FILL_LAYER_ID, 'fill-color', colorExpr);
 }
 
+// ===== Toggle mesh/building layers based on zoom =====
+function updateLayerVisibility() {
+  if (!map) return;
+  const zoom = map.getZoom();
+  const showBuildings = zoom >= ZOOM_THRESHOLD;
+
+  // Show/hide mesh layers
+  const meshFillVisibility = showBuildings ? 'none' : 'visible';
+  const meshOutlineVisibility = showBuildings ? 'none' : 'visible';
+
+  if (map.getLayer(MESH_FILL_LAYER_ID)) {
+    map.setLayoutProperty(MESH_FILL_LAYER_ID, 'visibility', meshFillVisibility);
+  }
+  if (map.getLayer(MESH_OUTLINE_LAYER_ID)) {
+    map.setLayoutProperty(MESH_OUTLINE_LAYER_ID, 'visibility', meshOutlineVisibility);
+  }
+
+  // Show/hide building layer
+  const buildingsVisibility = showBuildings ? 'visible' : 'none';
+  if (map.getLayer(BUILDINGS_LAYER_ID)) {
+    map.setLayoutProperty(BUILDINGS_LAYER_ID, 'visibility', buildingsVisibility);
+  }
+
+  console.log(`Zoom: ${zoom.toFixed(2)} - ${showBuildings ? 'Showing buildings' : 'Showing mesh'}`);
+}
+
 // ===== Initialize legend =====
 function updateLegend() {
-  const container = document.getElementById('legend-content');
-  if (!container) return;
-  container.innerHTML = '';
+  const meshContainer = document.getElementById('legend-content');
+  const buildingsContainer = document.getElementById('buildings-legend-content');
+  
+  if (!meshContainer) return;
+  meshContainer.innerHTML = '';
+  if (buildingsContainer) buildingsContainer.innerHTML = '';
 
   const mode = MODES[currentCharacteristicMode];
   if (!mode) return;
 
   const heading = document.createElement('h4');
   heading.textContent = mode.label;
-  container.appendChild(heading);
+  meshContainer.appendChild(heading);
 
   if (currentCharacteristicMode === 'restaurants') {
     // Show restaurant count legend
@@ -328,13 +484,13 @@ function updateLegend() {
 
       row.appendChild(colorBox);
       row.appendChild(label);
-      container.appendChild(row);
+      meshContainer.appendChild(row);
     });
 
     const desc = document.createElement('div');
     desc.style.marginTop = '10px';
     desc.innerHTML = '<p style="margin:0; font-size:12px;"><strong>飲食店数</strong>によるヒートマップ表示。</p>';
-    container.appendChild(desc);
+    meshContainer.appendChild(desc);
   } else {
     // Show characteristic legend
     const row = document.createElement('div');
@@ -350,7 +506,7 @@ function updateLegend() {
 
     row.appendChild(colorBox);
     row.appendChild(label);
-    container.appendChild(row);
+    meshContainer.appendChild(row);
 
     // Mode-specific descriptions
     const desc = document.createElement('div');
@@ -379,7 +535,36 @@ function updateLegend() {
                        '<p style="margin:2px 0 0 0;">・建物総数 ≥ 50</p>';
     }
     
-    container.appendChild(desc);
+    meshContainer.appendChild(desc);
+  }
+
+  // Show building usage legend when buildings are visible
+  if (buildingsContainer && map && map.getZoom() >= ZOOM_THRESHOLD) {
+    const heading = document.createElement('h4');
+    heading.textContent = '建物用途';
+    buildingsContainer.appendChild(heading);
+
+    const usageItems = Object.entries(BUILDING_USAGE_COLORS).slice(0, -1); // Exclude 'その他'
+    usageItems.forEach(([usage, color]) => {
+      const row = document.createElement('div');
+      row.className = 'legend-item';
+
+      const colorBox = document.createElement('span');
+      colorBox.className = 'legend-color';
+      colorBox.style.backgroundColor = color;
+      colorBox.style.borderRadius = '50%';
+      colorBox.style.display = 'inline-block';
+      colorBox.style.width = '12px';
+      colorBox.style.height = '12px';
+
+      const label = document.createElement('span');
+      label.className = 'legend-label';
+      label.textContent = usage;
+
+      row.appendChild(colorBox);
+      row.appendChild(label);
+      buildingsContainer.appendChild(row);
+    });
   }
 }
 
@@ -410,11 +595,22 @@ function initMap() {
   map.on('load', () => {
     loadMeshData()
       .then(() => {
+        loadBuildingsData();
+      })
+      .then(() => {
+        ensureBuildingLayersFirst();
         ensureMeshLayers();
         updateMeshColors();
+        updateLayerVisibility();
         updateLegend();
       })
       .catch((e) => console.error('Error:', e));
+
+    // Listen for zoom changes
+    map.on('zoom', () => {
+      updateLayerVisibility();
+      updateLegend();
+    });
   });
 }
 
