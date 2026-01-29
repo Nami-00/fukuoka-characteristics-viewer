@@ -651,7 +651,7 @@ function updateLegend() {
 function initMap() {
   map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/streets-v12',
+    style: 'mapbox://styles/mapbox/light-v11',
     center: [130.4017, 33.5904],
     zoom: 10
   });
