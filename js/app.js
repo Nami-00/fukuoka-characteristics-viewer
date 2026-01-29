@@ -18,10 +18,14 @@ let currentCharacteristicMode = 'residential';
 // データ
 let meshUsageData = null;
 let buildingsUsageData = null;
+let buildingsLoaded = false;
 
 // ===== URLs =====
 const MESH_USAGE_URL = 'web_data/mesh_usage.geojson';
-const BUILDINGS_USAGE_URL = 'web_data/buildings_usage.geojson';
+const BUILDINGS_USAGE_URLS = [
+  'web_data/buildings_by_region/center.geojsonl',
+  'web_data/buildings_by_region/north.geojsonl'
+];
 
 // ===== Zoom threshold for layer switching =====
 const ZOOM_THRESHOLD = 14;
@@ -33,15 +37,31 @@ const MESH_OUTLINE_LAYER_ID = 'mesh-outline';
 const BUILDINGS_SOURCE_ID = 'buildings-usage';
 const BUILDINGS_LAYER_ID = 'buildings-circles';
 
-// ===== Building usage colors =====
+// ===== Building usage colors and labels =====
+const BUILDING_USAGE_CODES = {
+  '421': '官公庁施設',
+  '412': '共同住宅',
+  '411': '住宅',
+  '402': '商業施設',
+  '422': '文教厚生施設',
+  '401': '業務施設',
+  '404': '商業系複合施設',
+  '413': '店舗等併用住宅',
+  '414': '店舗等併用共同住宅',
+  '403': '宿泊施設'
+};
+
 const BUILDING_USAGE_COLORS = {
-  '住宅': '#66c2a5',
-  '共同住宅': '#66c2a5',
-  '商業施設': '#fc8d62',
-  '業務施設': '#8da0cb',
-  '店舗': '#fc8d62',
-  '飲食店': '#e78ac3',
-  'その他': '#cccccc'
+  '421': '#95b8d1', // 官公庁施設: 薄紫
+  '412': '#66c2a5', // 共同住宅: 緑
+  '411': '#66c2a5', // 住宅: 緑
+  '402': '#fc8d62', // 商業施設: オレンジ
+  '422': '#e78ac3', // 文教厚生施設: ピンク
+  '401': '#8da0cb', // 業務施設: 紫
+  '404': '#fc8d62', // 商業系複合施設: オレンジ
+  '413': '#66c2a5', // 店舗等併用住宅: 緑
+  '414': '#66c2a5', // 店舗等併用共同住宅: 緑
+  '403': '#fdb462'  // 宿泊施設: 薄オレンジ
 };
 
 // ===== Mode configuration =====
@@ -148,41 +168,84 @@ async function loadMeshData() {
 
 // ===== Load buildings data =====
 async function loadBuildingsData() {
-  if (buildingsUsageData) return;
+  if (buildingsLoaded) return;
   try {
-    const response = await fetch(BUILDINGS_USAGE_URL);
-    buildingsUsageData = await response.json();
-    console.log(`Buildings data loaded: ${buildingsUsageData.features.length} buildings`);
+    console.log('[DEBUG] Loading buildings data from multiple files');
+    const allFeatures = [];
+    
+    for (const url of BUILDINGS_USAGE_URLS) {
+      console.log('[DEBUG] Loading from:', url);
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status} for ${url}`);
+      }
+      const text = await response.text();
+      const lines = text.trim().split('\n');
+      console.log(`[DEBUG] File has ${lines.length} lines`);
+      
+      // Parse GeoJSONL format
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            allFeatures.push(JSON.parse(line));
+          } catch (e) {
+            console.warn('[DEBUG] Failed to parse line:', e);
+          }
+        }
+      }
+    }
+    
+    buildingsUsageData = { type: 'FeatureCollection', features: allFeatures };
+    buildingsLoaded = true;
+    console.log(`[DEBUG] All buildings data loaded: ${buildingsUsageData.features.length} buildings`);
+    console.log('[DEBUG] First building sample:', buildingsUsageData.features && buildingsUsageData.features[0]);
   } catch (e) {
-    console.error('Error loading buildings data:', e);
+    console.error('[DEBUG] Error loading buildings data:', e);
     throw e;
   }
 }
 
 // ===== Ensure building layers are created first =====
 function ensureBuildingLayersFirst() {
-  if (!map || !map.isStyleLoaded()) return;
-  if (!buildingsUsageData) return;
+  if (!map || !map.isStyleLoaded()) {
+    console.log('[DEBUG] Map not ready or style not loaded');
+    return;
+  }
+  if (!buildingsUsageData) {
+    console.log('[DEBUG] Buildings data not loaded yet');
+    return;
+  }
+
+  console.log('[DEBUG] Creating building layers...');
 
   // Add source
   if (!map.getSource(BUILDINGS_SOURCE_ID)) {
+    console.log('[DEBUG] Adding buildings source:', BUILDINGS_SOURCE_ID);
     map.addSource(BUILDINGS_SOURCE_ID, {
       type: 'geojson',
       data: buildingsUsageData
     });
   } else {
+    console.log('[DEBUG] Buildings source already exists');
     map.getSource(BUILDINGS_SOURCE_ID).setData(buildingsUsageData);
   }
 
   // Build color expression for building usage
-  const colorExpr = ['match', ['get', '用途']];
-  for (const [usage, color] of Object.entries(BUILDING_USAGE_COLORS)) {
-    colorExpr.push(usage, color);
+  const colorExpr = ['match', ['get', 'usage']];
+  // Add all defined usage codes
+  for (const code of Object.keys(BUILDING_USAGE_CODES)) {
+    colorExpr.push(code, BUILDING_USAGE_COLORS[code]);
   }
-  colorExpr.push('#cccccc'); // default color
+  // Default color for unmapped codes
+  colorExpr.push('#cccccc');
+  
+  console.log('[DEBUG] Color expression keys:', Object.keys(BUILDING_USAGE_CODES));
+
+  console.log('[DEBUG] Color expression built with usage types:', Object.keys(BUILDING_USAGE_COLORS));
 
   // Add circle layer (first, so it appears below mesh)
   if (!map.getLayer(BUILDINGS_LAYER_ID)) {
+    console.log('[DEBUG] Adding buildings circle layer:', BUILDINGS_LAYER_ID);
     map.addLayer({
       id: BUILDINGS_LAYER_ID,
       type: 'circle',
@@ -196,6 +259,9 @@ function ensureBuildingLayersFirst() {
       },
       layout: { visibility: 'visible' }
     });
+    console.log('[DEBUG] Buildings layer created successfully');
+  } else {
+    console.log('[DEBUG] Buildings layer already exists');
   }
 
   // Bind popup for buildings
@@ -356,7 +422,7 @@ function bindBuildingPopupOnce() {
 
     const p = f.properties || {};
     const buildingId = p.id ?? p.building_id ?? '(unknown)';
-    const buildingType = p.用途 ?? p.usage ?? 'Unknown';
+    const buildingLabel = p.usage_ja ?? p.usage ?? 'Unknown';
 
     const html = `
       <div style="font-size:12px; line-height:1.45;">
@@ -368,7 +434,7 @@ function bindBuildingPopupOnce() {
           </colgroup>
           <tr>
             <td style="padding:4px 8px 4px 0; white-space:normal; word-break:break-word;">用途</td>
-            <td style="padding:4px 0; white-space:normal; word-break:break-word;">${buildingType}</td>
+            <td style="padding:4px 0; white-space:normal; word-break:break-word;">${buildingLabel}</td>
           </tr>
         </table>
       </div>
@@ -432,14 +498,26 @@ function updateLayerVisibility() {
     map.setLayoutProperty(MESH_OUTLINE_LAYER_ID, 'visibility', meshOutlineVisibility);
   }
 
+  // Load and show building layer only when needed
+  if (showBuildings && !buildingsLoaded) {
+    console.log('[DEBUG] Loading buildings data on demand at zoom:', zoom.toFixed(2));
+    loadBuildingsData()
+      .then(() => {
+        ensureBuildingLayersFirst();
+        updateLegend();
+      })
+      .catch((e) => console.error('[DEBUG] Error loading buildings:', e));
+  }
+
   // Show/hide building layer
-  const buildingsVisibility = showBuildings ? 'visible' : 'none';
+  const buildingsVisibility = (showBuildings && buildingsLoaded) ? 'visible' : 'none';
   if (map.getLayer(BUILDINGS_LAYER_ID)) {
     map.setLayoutProperty(BUILDINGS_LAYER_ID, 'visibility', buildingsVisibility);
   }
 
   console.log(`Zoom: ${zoom.toFixed(2)} - ${showBuildings ? 'Showing buildings' : 'Showing mesh'}`);
 }
+
 
 // ===== Initialize legend =====
 function updateLegend() {
@@ -539,13 +617,14 @@ function updateLegend() {
   }
 
   // Show building usage legend when buildings are visible
-  if (buildingsContainer && map && map.getZoom() >= ZOOM_THRESHOLD) {
+  if (buildingsContainer && map && map.getZoom() >= ZOOM_THRESHOLD && buildingsLoaded) {
     const heading = document.createElement('h4');
     heading.textContent = '建物用途';
     buildingsContainer.appendChild(heading);
 
-    const usageItems = Object.entries(BUILDING_USAGE_COLORS).slice(0, -1); // Exclude 'その他'
-    usageItems.forEach(([usage, color]) => {
+    // Display only the defined usage codes in order
+    for (const [code, label] of Object.entries(BUILDING_USAGE_CODES)) {
+      const color = BUILDING_USAGE_COLORS[code];
       const row = document.createElement('div');
       row.className = 'legend-item';
 
@@ -557,14 +636,14 @@ function updateLegend() {
       colorBox.style.width = '12px';
       colorBox.style.height = '12px';
 
-      const label = document.createElement('span');
-      label.className = 'legend-label';
-      label.textContent = usage;
+      const labelSpan = document.createElement('span');
+      labelSpan.className = 'legend-label';
+      labelSpan.textContent = label;
 
       row.appendChild(colorBox);
-      row.appendChild(label);
+      row.appendChild(labelSpan);
       buildingsContainer.appendChild(row);
-    });
+    }
   }
 }
 
@@ -572,20 +651,7 @@ function updateLegend() {
 function initMap() {
   map = new mapboxgl.Map({
     container: 'map',
-    style: {
-      version: 8,
-      sources: {
-        'gsi-pale': {
-          type: 'raster',
-          tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html">国土地理院</a>'
-        }
-      },
-      layers: [
-        { id: 'gsi-pale-layer', type: 'raster', source: 'gsi-pale', minzoom: 0, maxzoom: 18 }
-      ]
-    },
+    style: 'mapbox://styles/mapbox/streets-v12',
     center: [130.4017, 33.5904],
     zoom: 10
   });
@@ -593,18 +659,18 @@ function initMap() {
   map.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
   map.on('load', () => {
+    console.log('[DEBUG] Map loaded, starting data load...');
     loadMeshData()
       .then(() => {
-        loadBuildingsData();
-      })
-      .then(() => {
-        ensureBuildingLayersFirst();
+        console.log('[DEBUG] Mesh data loaded successfully');
+        // Don't load buildings data yet - wait for zoom event
         ensureMeshLayers();
         updateMeshColors();
         updateLayerVisibility();
         updateLegend();
+        console.log('[DEBUG] Mesh layers created and configured');
       })
-      .catch((e) => console.error('Error:', e));
+      .catch((e) => console.error('[DEBUG] Error during initialization:', e));
 
     // Listen for zoom changes
     map.on('zoom', () => {
