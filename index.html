@@ -23,7 +23,7 @@
       
       <div class="radio-group">
         <label>
-          <input type="radio" name="mode-select" value="residential" checked> 住居が多い
+          <input type="radio" name="mode-select" value="residential"> 住居が多い
         </label>
       </div>
       
@@ -44,10 +44,15 @@
           <input type="radio" name="mode-select" value="diverse"> 多用途
         </label>
       </div>
+    </div>
+
+    <!-- Restaurants separate section -->
+    <div class="control-group">
+      <h2>飲食店</h2>
       
       <div class="radio-group">
         <label>
-          <input type="radio" name="mode-select" value="restaurants"> 飲食店の多さ
+          <input type="radio" name="mode-select" value="restaurants" checked> 飲食店の多さ
         </label>
       </div>
     </div>
@@ -55,6 +60,16 @@
     <div id="legend-panel">
       <h3>凡例</h3>
       <div id="legend-content"></div>
+    </div>
+
+    <div id="info-panel">
+      <div id="building-info-message"></div>
+      <div id="loading-indicator" style="display: none;">
+        <div style="text-align: center; padding: 10px;">
+          <div style="font-size: 20px; margin-bottom: 5px;">⏳</div>
+          <div style="font-size: 12px; color: #666;">建物データを表示中...</div>
+        </div>
+      </div>
     </div>
   </div>
 

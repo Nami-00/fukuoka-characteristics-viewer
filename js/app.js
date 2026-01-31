@@ -13,7 +13,7 @@ mapboxgl.accessToken = 'pk.eyJ1IjoibmFtaTAwIiwiYSI6ImNta2FlNGFkeTFsbzkzZnNjY3kyY
 let map;
 
 // 現在のモード（radio button切り替え）
-let currentCharacteristicMode = 'residential';
+let currentCharacteristicMode = 'restaurants';
 
 // データ
 let meshUsageData = null;
@@ -496,7 +496,24 @@ function bindBuildingPopupOnce() {
   buildingPopupBound = true;
 }
 
-// ===== Update colors based on mode =====
+// ===== Update building info message =====
+function updateBuildingInfoMessage(showMessage, isLoading) {
+  const msgElement = document.getElementById('building-info-message');
+  const loadingElement = document.getElementById('loading-indicator');
+  
+  if (!msgElement) return;
+  
+  if (showMessage && !isLoading) {
+    msgElement.innerHTML = '📍 <strong>さらに拡大</strong>すると個別の建物データが確認できます';
+    if (loadingElement) loadingElement.style.display = 'none';
+  } else if (isLoading) {
+    msgElement.innerHTML = '';
+    if (loadingElement) loadingElement.style.display = 'block';
+  } else {
+    msgElement.innerHTML = '';
+    if (loadingElement) loadingElement.style.display = 'none';
+  }
+}
 function updateMeshColors() {
   if (!map.getLayer(MESH_FILL_LAYER_ID)) return;
 
@@ -523,29 +540,49 @@ function updateLayerVisibility() {
   const zoom = map.getZoom();
   const showBuildings = zoom >= ZOOM_THRESHOLD;
 
-  // Show/hide mesh layers
-  const meshFillVisibility = showBuildings ? 'none' : 'visible';
+  // Show/hide mesh layers - keep visible but adjust opacity
+  const meshFillVisibility = 'visible';
   const meshOutlineVisibility = showBuildings ? 'none' : 'visible';
+  
+  // Adjust mesh fill opacity based on zoom
+  let meshOpacity = 0.6;
+  if (showBuildings) {
+    // When showing buildings (zoom >= 14), reduce mesh opacity to ~10%
+    meshOpacity = 0.1;
+  }
 
   if (map.getLayer(MESH_FILL_LAYER_ID)) {
     map.setLayoutProperty(MESH_FILL_LAYER_ID, 'visibility', meshFillVisibility);
+    map.setPaintProperty(MESH_FILL_LAYER_ID, 'fill-opacity', meshOpacity);
   }
   if (map.getLayer(MESH_OUTLINE_LAYER_ID)) {
     map.setLayoutProperty(MESH_OUTLINE_LAYER_ID, 'visibility', meshOutlineVisibility);
+  }
+
+  // Show message when zoom is between 10 and 14
+  if (zoom >= 10 && zoom < ZOOM_THRESHOLD) {
+    updateBuildingInfoMessage(true, false);
+  } else if (zoom < 10) {
+    updateBuildingInfoMessage(false, false);
   }
 
   // Load and show building layer only when needed
   if (showBuildings) {
     const requiredRegion = getRequiredRegion();
     if (requiredRegion) {
+      updateBuildingInfoMessage(false, true);  // Show loading
       loadBuildingsDataForRegion(requiredRegion)
         .then(() => {
           if (!map.getLayer(BUILDINGS_LAYER_ID)) {
             ensureBuildingLayersFirst();
           }
+          updateBuildingInfoMessage(false, false);  // Hide loading
           updateLegend();
         })
-        .catch((e) => console.error('[DEBUG] Error loading buildings:', e));
+        .catch((e) => {
+          console.error('[DEBUG] Error loading buildings:', e);
+          updateBuildingInfoMessage(false, false);  // Hide loading on error
+        });
     }
   }
 
@@ -555,7 +592,7 @@ function updateLayerVisibility() {
     map.setLayoutProperty(BUILDINGS_LAYER_ID, 'visibility', buildingsVisibility);
   }
 
-  console.log(`Zoom: ${zoom.toFixed(2)} - ${showBuildings ? 'Showing buildings' : 'Showing mesh'}`);
+  console.log(`Zoom: ${zoom.toFixed(2)} - Mesh opacity: ${meshOpacity}, ${showBuildings ? 'Showing buildings' : 'Showing mesh'}`);
 }
 
 
@@ -725,15 +762,20 @@ function initMap() {
         const requiredRegion = getRequiredRegion();
         if (requiredRegion && requiredRegion !== currentRegion) {
           console.log(`[DEBUG] Region changed from ${currentRegion} to ${requiredRegion}, reloading...`);
+          updateBuildingInfoMessage(false, true);  // Show loading
           buildingsLoaded = false;  // Reset to force reload
           loadBuildingsDataForRegion(requiredRegion)
             .then(() => {
               if (!map.getLayer(BUILDINGS_LAYER_ID)) {
                 ensureBuildingLayersFirst();
               }
+              updateBuildingInfoMessage(false, false);  // Hide loading
               updateLegend();
             })
-            .catch((e) => console.error('[DEBUG] Error loading buildings on move:', e));
+            .catch((e) => {
+              console.error('[DEBUG] Error loading buildings on move:', e);
+              updateBuildingInfoMessage(false, false);  // Hide loading on error
+            });
         }
       }
     });
