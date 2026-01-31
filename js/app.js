@@ -19,12 +19,20 @@ let currentCharacteristicMode = 'residential';
 let meshUsageData = null;
 let buildingsUsageData = null;
 let buildingsLoaded = false;
+let currentRegion = null;  // 現在ロードされている領域
 
 // ===== URLs =====
 const MESH_USAGE_URL = 'web_data/mesh_usage.geojson';
-const BUILDINGS_USAGE_URLS = [
-  'web_data/buildings_by_region/center.geojsonl',
-  'web_data/buildings_by_region/north.geojsonl'
+const BUILDINGS_REGION_BASE_URL = 'web_data/buildings_by_region';
+const LON_RANGES = [
+  { id: 'lon_0', min: 130.0, max: 130.2 },
+  { id: 'lon_1', min: 130.2, max: 130.4 },
+  { id: 'lon_2', min: 130.4, max: 130.6 },
+  { id: 'lon_3', min: 130.6, max: 130.8 },
+  { id: 'lon_4', min: 130.8, max: 131.0 },
+  { id: 'lon_5', min: 131.0, max: 131.2 },
+  { id: 'lon_6', min: 131.2, max: 131.4 },
+  { id: 'lon_7', min: 131.4, max: 131.6 },
 ];
 
 // ===== Zoom threshold for layer switching =====
@@ -166,43 +174,71 @@ async function loadMeshData() {
   }
 }
 
-// ===== Load buildings data =====
-async function loadBuildingsData() {
-  if (buildingsLoaded) return;
+// ===== Load buildings data for specific region (only one at a time) =====
+async function loadBuildingsDataForRegion(regionId) {
+  // Already loaded
+  if (currentRegion === regionId && buildingsLoaded) {
+    console.log(`[DEBUG] Region ${regionId} already loaded`);
+    return;
+  }
+
   try {
-    console.log('[DEBUG] Loading buildings data from multiple files');
-    const allFeatures = [];
+    console.log(`[DEBUG] Loading region ${regionId}`);
+    const url = `${BUILDINGS_REGION_BASE_URL}/${regionId}.geojsonl`;
     
-    for (const url of BUILDINGS_USAGE_URLS) {
-      console.log('[DEBUG] Loading from:', url);
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status} for ${url}`);
-      }
-      const text = await response.text();
-      const lines = text.trim().split('\n');
-      console.log(`[DEBUG] File has ${lines.length} lines`);
-      
-      // Parse GeoJSONL format
-      for (const line of lines) {
-        if (line.trim()) {
-          try {
-            allFeatures.push(JSON.parse(line));
-          } catch (e) {
-            console.warn('[DEBUG] Failed to parse line:', e);
-          }
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.warn(`[DEBUG] HTTP error! status: ${response.status} for ${url}`);
+      return;
+    }
+    
+    const text = await response.text();
+    const lines = text.trim().split('\n');
+    console.log(`[DEBUG] Region ${regionId} has ${lines.length} lines`);
+    
+    const features = [];
+    for (const line of lines) {
+      if (line.trim()) {
+        try {
+          features.push(JSON.parse(line));
+        } catch (e) {
+          console.warn('[DEBUG] Failed to parse line:', e);
         }
       }
     }
     
-    buildingsUsageData = { type: 'FeatureCollection', features: allFeatures };
+    buildingsUsageData = { type: 'FeatureCollection', features };
+    currentRegion = regionId;
     buildingsLoaded = true;
-    console.log(`[DEBUG] All buildings data loaded: ${buildingsUsageData.features.length} buildings`);
-    console.log('[DEBUG] First building sample:', buildingsUsageData.features && buildingsUsageData.features[0]);
+    console.log(`[DEBUG] Region ${regionId} loaded: ${features.length} buildings`);
+    
+    // Update the source with new data
+    if (map.getSource(BUILDINGS_SOURCE_ID)) {
+      map.getSource(BUILDINGS_SOURCE_ID).setData(buildingsUsageData);
+      console.log('[DEBUG] Source updated with new buildings');
+    }
   } catch (e) {
-    console.error('[DEBUG] Error loading buildings data:', e);
-    throw e;
+    console.error(`[DEBUG] Error loading region ${regionId}:`, e);
   }
+}
+
+// ===== Get single region for current map center =====
+function getRequiredRegion() {
+  if (!map) return null;
+  
+  const center = map.getCenter();
+  const lon = center.lng;
+  
+  console.log(`[DEBUG] Map center longitude: ${lon.toFixed(2)}`);
+  
+  // Find region that contains this longitude
+  const region = LON_RANGES.find(range => lon >= range.min && lon < range.max);
+  
+  if (region) {
+    console.log('[DEBUG] Required region:', region.id);
+    return region.id;
+  }
+  return null;
 }
 
 // ===== Ensure building layers are created first =====
@@ -499,14 +535,18 @@ function updateLayerVisibility() {
   }
 
   // Load and show building layer only when needed
-  if (showBuildings && !buildingsLoaded) {
-    console.log('[DEBUG] Loading buildings data on demand at zoom:', zoom.toFixed(2));
-    loadBuildingsData()
-      .then(() => {
-        ensureBuildingLayersFirst();
-        updateLegend();
-      })
-      .catch((e) => console.error('[DEBUG] Error loading buildings:', e));
+  if (showBuildings) {
+    const requiredRegion = getRequiredRegion();
+    if (requiredRegion) {
+      loadBuildingsDataForRegion(requiredRegion)
+        .then(() => {
+          if (!map.getLayer(BUILDINGS_LAYER_ID)) {
+            ensureBuildingLayersFirst();
+          }
+          updateLegend();
+        })
+        .catch((e) => console.error('[DEBUG] Error loading buildings:', e));
+    }
   }
 
   // Show/hide building layer
@@ -517,6 +557,7 @@ function updateLayerVisibility() {
 
   console.log(`Zoom: ${zoom.toFixed(2)} - ${showBuildings ? 'Showing buildings' : 'Showing mesh'}`);
 }
+
 
 
 // ===== Initialize legend =====
@@ -676,6 +717,25 @@ function initMap() {
     map.on('zoom', () => {
       updateLayerVisibility();
       updateLegend();
+    });
+
+    // Listen for map move/drag to load new region if needed
+    map.on('moveend', () => {
+      if (map.getZoom() >= ZOOM_THRESHOLD) {
+        const requiredRegion = getRequiredRegion();
+        if (requiredRegion && requiredRegion !== currentRegion) {
+          console.log(`[DEBUG] Region changed from ${currentRegion} to ${requiredRegion}, reloading...`);
+          buildingsLoaded = false;  // Reset to force reload
+          loadBuildingsDataForRegion(requiredRegion)
+            .then(() => {
+              if (!map.getLayer(BUILDINGS_LAYER_ID)) {
+                ensureBuildingLayersFirst();
+              }
+              updateLegend();
+            })
+            .catch((e) => console.error('[DEBUG] Error loading buildings on move:', e));
+        }
+      }
     });
   });
 }

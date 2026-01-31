@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GeoJSONLファイルを緯度範囲ごとに分割する（メモリ効率化）
+GeoJSONLファイルを経度範囲ごとに8分割する（メモリ効率化）
+経度を8分割: 130.0-130.2, 130.2-130.4, ..., 130.8-131.0
 """
 
 import json
@@ -13,14 +14,23 @@ output_dir = 'web_data/buildings_by_region'
 # 出力ディレクトリを作成
 os.makedirs(output_dir, exist_ok=True)
 
-# 緯度範囲ごとのファイルハンドル
-regions = {
-    'south': open(os.path.join(output_dir, 'south.geojsonl'), 'w', encoding='utf-8'),  # 33.4以下
-    'center': open(os.path.join(output_dir, 'center.geojsonl'), 'w', encoding='utf-8'),  # 33.4-33.6
-    'north': open(os.path.join(output_dir, 'north.geojsonl'), 'w', encoding='utf-8'),  # 33.6以上
-}
+# 経度範囲ごとのファイルハンドル（8分割）
+regions = {}
+lon_ranges = [
+    ('lon_0', 130.0, 130.2),
+    ('lon_1', 130.2, 130.4),
+    ('lon_2', 130.4, 130.6),
+    ('lon_3', 130.6, 130.8),
+    ('lon_4', 130.8, 131.0),
+    ('lon_5', 131.0, 131.2),
+    ('lon_6', 131.2, 131.4),
+    ('lon_7', 131.4, 131.6),
+]
 
-counts = {'south': 0, 'center': 0, 'north': 0}
+for region_id, _, _ in lon_ranges:
+    regions[region_id] = open(os.path.join(output_dir, f'{region_id}.geojsonl'), 'w', encoding='utf-8')
+
+counts = {region_id: 0 for region_id, _, _ in lon_ranges}
 
 with open(input_file, 'r', encoding='utf-8') as f:
     for line in f:
@@ -28,18 +38,17 @@ with open(input_file, 'r', encoding='utf-8') as f:
             try:
                 feature = json.loads(line)
                 coords = feature['geometry']['coordinates']
-                lat = coords[1]
+                lon = coords[0]
                 
-                # 緯度範囲で分類
-                if lat < 33.4:
-                    region = 'south'
-                elif lat < 33.6:
-                    region = 'center'
-                else:
-                    region = 'north'
+                # 経度範囲で分類
+                region_id = 'lon_7'  # デフォルト
+                for rid, min_lon, max_lon in lon_ranges:
+                    if min_lon <= lon < max_lon:
+                        region_id = rid
+                        break
                 
-                regions[region].write(json.dumps(feature, ensure_ascii=False) + '\n')
-                counts[region] += 1
+                regions[region_id].write(json.dumps(feature, ensure_ascii=False) + '\n')
+                counts[region_id] += 1
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
 
@@ -49,7 +58,10 @@ for f in regions.values():
 
 total = sum(counts.values())
 print(f"Total features: {total}")
-for region, count in counts.items():
-    print(f"  {region}: {count}")
+for region_id, min_lon, max_lon in lon_ranges:
+    count = counts[region_id]
+    print(f"  {region_id} ({min_lon}-{max_lon}): {count}")
 print(f"\nFiles written to {output_dir}")
+
+
 
